@@ -1,4 +1,5 @@
-from os import error
+from json.decoder import JSONDecodeError
+from os import error, path
 import requests
 from bs4 import BeautifulSoup
 import time
@@ -45,25 +46,26 @@ class Product():
         self.subgroup = subgroup
         self.subsubgroup = subsubgroup
 
-    def append_dict(self, dict):
-        dict['index'].append(self.index)
-        dict['ean'].append(self.ean)
-        dict['product_name'].append(self.product_name)
-        dict['photo_url'].append(self.photo_url)
-        dict['net_price'].append(self.net_price)
-        dict['gross_price'].append(self.gross_price)
-        dict['jm'].append(self.jm)
-        dict['brand'].append(self.brand)
-        dict['manufacturer'].append(self.manufacturer)
-        dict['origin'].append(self.origin)
-        dict['vat'].append(self.vat)
-        dict['net_weight'].append(self.net_weight)
-        dict['gross_weight'].append(self.gross_weight)
-        dict['group'].append(self.group)
-        dict['subgroup'].append(self.subgroup)
-        dict['subsubgroup'].append(self.subsubgroup)
-        dict['attachment'].append(self.attachment)
-        return dict
+    def as_dict(self):
+        return {
+            'index': [self.index], 
+            'ean': [self.ean],
+            'product_name': [self.product_name],
+            'photo_url': [self.photo_url],
+            'net_price': [self.net_price],
+            'gross_price': [self.gross_price],
+            'jm': [self.jm],
+            'brand': [self.brand],
+            'manufacturer': [self.manufacturer],
+            'origin': [self.origin],
+            'vat': [self.vat],
+            'net_weight': [self.net_weight],
+            'gross_weight': [self.gross_weight],
+            'group': [self.group],
+            'subgroup': [self.subgroup],
+            'subsubgroup': [self.subsubgroup],
+            'attachment': [self.attachment],
+            }
 
 class Processed_OCR():
     def __init__(self, prd_id, add_descr='', ean='', ingridients='', allergens='', before_table='', table1=[], table2=[], table3=[], additional_info={}):
@@ -158,7 +160,7 @@ def get_bearer_token():
             print('Próbuję ponownie...')
             continue
 
-def get_prd_data(session, headers, query_index, query_ean, products, unavailable_products):
+def get_prd_data(session, headers, query_index, query_ean, unavailable_products):
     # Poprzez API uzyskaj dane produktów - część bezpośrednio poprzez wyszukiwarkę, resztę poprzez kartę produktu, pobierz załącznik.
     # Jeżeli produkt jest niedostepny zapisz go na liście niedostępnych i akcje zapisz w logu.
     # Jeżeli sesja wygasła, zaloguj użytkownika ponownie
@@ -166,7 +168,10 @@ def get_prd_data(session, headers, query_index, query_ean, products, unavailable
     query_url = 'https://makro.ehurtownia.pl/one/eh-one-backend/rest/1053/8/110100/oferta?lang=PL&offset=0&limit=10&sortAsc=nazwa&cechaWartosc=%s %s'
     attachment_url = 'https://makro.ehurtownia.pl/one/eh-one-backend/rest/1053/8/110100/oferta/%s/zalacznik?lang=PL'
 
-    while True:
+    attempt = 0
+    product_name = ''
+    net_weight = ''
+    while attempt < 4:
         try:
             print(f"Uzyskuję dane dla towaru z indekstem {query_index} i kodem EAN {query_ean }")
             query_result = session.get((query_url % (query_index, query_ean )), headers=headers, timeout=7)
@@ -175,12 +180,16 @@ def get_prd_data(session, headers, query_index, query_ean, products, unavailable
                 index = query_index
                 ean = query_ean
                 product_details = product_details['pozycje'][0]
-                photo_url = product_details['zdjecie']
                 product_name =  product_details['nazwa']
-                net_price = product_details['cenaNetto']
-                gross_price = product_details['cenaBrutto']
+                photo_url = product_details['zdjecie']
+                try:
+                    net_price = product_details['cenaNettoJedn']
+                    gross_price = product_details['cenaBruttoJedn']
+                except:
+                    net_price = product_details['cenaNetto']
+                    gross_price = product_details['cenaBrutto']
                 jm = product_details['jm']
-                brand = product_details['nazwa']
+                brand = product_details['marka']
                 manufacturer = product_details['producenciNazwa']
                 origin = product_details['krajPochodzeniaNazwa']
                 vat = product_details['procVat']
@@ -192,7 +201,7 @@ def get_prd_data(session, headers, query_index, query_ean, products, unavailable
                 unavailable_products['Kod kreskowy/EAN'].append(query_ean)
                 with open('log.txt', 'a') as log:
                     log.write(f'Produkt niedostępny: Indeks {query_index}, EAN {query_ean}\n')
-                return None, products, unavailable_products
+                return session, headers, None, unavailable_products
             else:
                 product_page = session.get((product_page_url % query_index), headers=headers, timeout=7)
                 product_details = json.loads(product_page.text)
@@ -225,12 +234,13 @@ def get_prd_data(session, headers, query_index, query_ean, products, unavailable
                     except:
                         with open('log.txt', 'a') as log:
                             log.write(f'Brak załącznika dla produktu: Indeks {query_index}, EAN {query_ean}\n')
-            
-                products = product.append_dict(products)
-
+        except (ConnectionResetError, NameError,requests.exceptions.Timeout,requests.exceptions.ConnectionError, TimeoutError, requests.exceptions.ChunkedEncodingError):
+            print('Błąd ładowania strony! Próbuję ponownie...')
+            attempt += 1
         except:
-            if "INTERNAL_ERROR" in query_result.text and query_result.status_code == 500:
+            if "INTERNAL_ERROR" in query_result.text or "Unable to authenticate bearer token" in query_result.text and attempt < 3:
                 session, headers = get_bearer_token()
+                attempt += 1
             else:
                 print('Zapisuję błąd do pliku "error_log.txt"...') 
                 with open('error_log.txt', 'a') as error_log:
@@ -238,8 +248,11 @@ def get_prd_data(session, headers, query_index, query_ean, products, unavailable
                     error_log.write(err)
                 with open('log.txt', 'a') as log:
                     log.write(f'Wystąpił błąd dla produktu: Indeks {query_index}, EAN {query_ean}\n')
-                return None, products, unavailable_products
-        return session, headers, product, products, unavailable_products
+                return session, headers, None, unavailable_products
+        else:
+            return session, headers, product, unavailable_products
+            
+    return session, headers, None, unavailable_products
 
 def has_numbers(string):
     # Sprawdź czy w tekście znajduje/ą się cyfry
@@ -253,6 +266,9 @@ def open_pdf(file_name):
     text = text.replace('¼', '1/4')
     text = text.replace('¾', '3/4')
     text = text.replace('ø', 'średnica')
+    text = text.replace('≥', '>=')
+    text = text.replace('º', 'o')
+    text = text.replace('≤', '<=')
     split_text = text.splitlines()
     split_text = [i for i in split_text if i]
     return split_text
@@ -370,6 +386,8 @@ def get_ingridients(split_text):
 def get_allergens(split_text, allergens):
     # Uzyskaj alergeny jeżeli nie zostały już wcześniej znalezione
     # Usuń z tekstu uzyskane elementy
+    started = True
+
     if allergens == '':
         el_to_rem = []
         try:
@@ -383,8 +401,16 @@ def get_allergens(split_text, allergens):
         except ValueError:
             allergens = None
 
-    if allergens == None or split_text[index_all] == 'Wartość odżywcza/ 100g':
-        started = False
+    try:
+        if split_text[index_all] == 'Wartość odżywcza/ 100g':
+            started = False
+        elif allergens == None:
+            started = False           
+    except UnboundLocalError:
+        if allergens == None:
+            started = False
+        
+    if started == False:
         for i, el in enumerate(split_text):
             if 'Contains' in el and not started:
                 el = el.replace('Contains : ','')
@@ -397,8 +423,11 @@ def get_allergens(split_text, allergens):
             elif started:
                 break
 
-    for i in reversed(el_to_rem):
-            split_text.pop(i)
+    try:
+        for i in reversed(el_to_rem):
+                split_text.pop(i)
+    except UnboundLocalError:
+        pass
 
     return split_text, allergens
 
@@ -498,8 +527,18 @@ def get_tables(split_text):
                 return split_text, '', [], [], []
 
             try:
-                if nutrinional_val_arr_1 == [] or has_numbers(nutrinional_val_arr_1[0][1]) and nutrinional_val_arr_1[0][0] == 'Wartość energetyczna' and 'kJ' not in nutrinional_val_arr_1[0][1] and "%" not in nutrinional_val_arr_1[0][1]:
-                    old_starting_indx = starting_index
+                start_second_try = False
+                if nutrinional_val_arr_1 == []:
+                    start_second_try = True
+                elif nutrinional_val_arr_1[0][1] and nutrinional_val_arr_1[0][0]:
+                    if has_numbers(nutrinional_val_arr_1[0][1]) and nutrinional_val_arr_1[0][0] == 'Wartość energetyczna' and 'kJ' not in nutrinional_val_arr_1[0][1] and "%" not in nutrinional_val_arr_1[0][1]:
+                        start_second_try = True
+            except IndexError:
+                start_second_try = True
+
+            if start_second_try == True:
+                try:
+                    old_starting_indx = starting_index  
                     nutrinional_val_arr_1 = []
                     try:
                         arr_indx = split_text.index('wartość odżywcza/ porcja') + 2 + jump
@@ -514,14 +553,17 @@ def get_tables(split_text):
                             rows_counter += 1
                         for i, x in enumerate(range(rows_counter, 0, -1)):
                             nutrinional_val_arr_1[i][1] = split_text[old_starting_indx - 2 - jump - x]
-                if nutrinional_val_arr_1[0][1]:
-                    for i in range((len(nutrinional_val_arr_1) - 1)):
-                        if nutrinional_val_arr_1[i][1] == '- kJ' and nutrinional_val_arr_1[i+1][1] == '- kcal':
-                            return split_text, '', [], [], []
-            except:
-                with open('error_log.txt', 'a') as error_log:
-                    err = traceback.format_exc()
-                    error_log.write(err)                
+                    try:
+                        if nutrinional_val_arr_1[0][1]:
+                            for i in range((len(nutrinional_val_arr_1) - 1)):
+                                if nutrinional_val_arr_1[i][1] == '- kJ' and nutrinional_val_arr_1[i+1][1] == '- kcal':
+                                    return split_text, '', [], [], []
+                    except IndexError:
+                        pass
+                except:
+                    with open('error_log.txt', 'a') as error_log:
+                        err = traceback.format_exc()
+                        error_log.write(err)                
 
     elif table_counter == 2:
         try:
@@ -540,29 +582,49 @@ def get_tables(split_text):
             for i, val in enumerate(split_text[(arr_indx+rows_counter):(arr_indx+2*rows_counter)]):
                 nutrinional_val_arr_2[i][1] = val
 
-            if 'kJ' not in nutrinional_val_arr_1[0][1]:
-                for i, el in enumerate(reversed(split_text)):
-                    if i < rows_counter:
-                        nutrinional_val_arr_2[rows_counter-1-i][1] = el
-                    elif i < 2*rows_counter:
-                        nutrinional_val_arr_1[2*rows_counter-1-i][1] = el
+
+            start = False
+            try:
+                if 'kJ' not in nutrinional_val_arr_1[0][1]:
+                    start = True
+            except IndexError:
+                start = True
+            finally:
+                if start == True:
+                    for i, el in enumerate(reversed(split_text)):
+                        if i < rows_counter:
+                            nutrinional_val_arr_2[rows_counter-1-i][1] = el
+                        elif i < 2*rows_counter:
+                            nutrinional_val_arr_1[2*rows_counter-1-i][1] = el
         except:
             with open('error_log.txt', 'a') as error_log:
                 err = traceback.format_exc()
                 error_log.write(err)
 
-        
-        if has_numbers(nutrinional_val_arr_1[0][1]) != True or "%" in nutrinional_val_arr_1[0][1] or (nutrinional_val_arr_1[0][0] == 'Wartość energetyczna' and 'kJ' not in nutrinional_val_arr_1[0][1]):
-            start_indx = split_text.index('Wartość odżywcza/ 100g') - 1
-            for i in range(rows_counter*2):
-                if i < rows_counter:
-                    indx = rows_counter - i - 1
-                    nutrinional_val_arr_2[indx][1] = split_text[start_indx-i]
-                elif i < 2*rows_counter:
-                    indx = rows_counter - (i - rows_counter) - 1
-                    nutrinional_val_arr_1[indx][1] = split_text[start_indx-i]
+        try:
+            start_second_try = False
+            if nutrinional_val_arr_1 == []:
+                start_second_try = True
+            elif nutrinional_val_arr_1[0][1] and nutrinional_val_arr_1[0][0]:
+                if has_numbers(nutrinional_val_arr_1[0][1]) != True or "%" in nutrinional_val_arr_1[0][1] or (nutrinional_val_arr_1[0][0] == 'Wartość energetyczna' and 'kJ' not in nutrinional_val_arr_1[0][1]):
+                    start_second_try = True
+        except IndexError:
+            start_second_try = True
 
-
+        if start_second_try == True:
+            try:
+                start_indx = split_text.index('Wartość odżywcza/ 100g') - 1
+                for i in range(rows_counter*2):
+                    if i < rows_counter:
+                        indx = rows_counter - i - 1
+                        nutrinional_val_arr_2[indx][1] = split_text[start_indx-i]
+                    elif i < 2*rows_counter:
+                        indx = rows_counter - (i - rows_counter) - 1
+                        nutrinional_val_arr_1[indx][1] = split_text[start_indx-i]
+            except:
+                with open('error_log.txt', 'a') as error_log:
+                    err = traceback.format_exc()
+                    error_log.write(err)
 
     elif table_counter == 3:
         try:        
@@ -833,28 +895,8 @@ def main():
         'Kod kreskowy/EAN': []
     }
 
-    products = {
-        'index': [],
-        'ean': [],
-        'product_name': [],
-        'photo_url': [],
-        'net_price': [],
-        'gross_price' : [],
-        'jm': [],
-        'brand': [],
-        'manufacturer': [],
-        'origin': [],
-        'vat': [],     
-        'net_weight': [],
-        'gross_weight': [],
-        'attachment': [],
-        'group': [],
-        'subgroup': [],
-        'subsubgroup': []
-    }
-
     session, headers = get_bearer_token()
-        
+    first_run = True    
     try:
         print('Otwieram plik z listą produktów do wyszukania...')
         query_items = pd.read_excel('indeks+ean.xlsx')
@@ -867,7 +909,7 @@ def main():
             try:
                 query_index = str(int(row['Indeks/SupplerItemCode']))
                 query_ean = str(int(row['Kod kreskowy/EAN']))
-                session, headers, product, products, unavailable_products = get_prd_data(session, headers, query_index, query_ean, products, unavailable_products)
+                session, headers, product, unavailable_products = get_prd_data(session, headers, query_index, query_ean, unavailable_products)
 
                 if product and product.attachment == True:
                     print('Otwieram plik pdf...')
@@ -890,23 +932,32 @@ def main():
                             ocr_data.ingridients.append(el)
                     docx_file = write_to_docx(ocr_data)
                     write_to_html(docx_file)
-                    print('Zapisuję aktualną listę produktów do baz danych... ')
-                    instock_products = pd.DataFrame(products)
-                    instock_products.to_csv('produkty.csv', index=False)
-                    instock_products.to_xml('produkty.xml')
+                if product:
+                    print('Dodaję produkt do bazy danych... ')
+                    instock_products = pd.DataFrame(product.as_dict())
+                    if first_run == True:
+                        if path.exists('produkty.csv'):
+                            products = pd.read_csv('produkty.csv')
+                            if products.empty:
+                                instock_products.to_csv('produkty.csv', index=False, mode='a', header=True)
+                        else:
+                            instock_products.to_csv('produkty.csv', index=False, mode='a', header=True)
+                        first_run = False
+                    else: 
+                        instock_products.to_csv('produkty.csv', index=False, mode='a', header=False)
+                    #instock_products.to_xml('produkty.xml')
 
                     soldout_products = pd.DataFrame(unavailable_products)
                     soldout_products.to_excel('niedostepne_produkty.xlsx', index=False)
-                    print('Produkty zapisane.\n')
+                    print('Produkt zapisany.\n')
             except:
                 with open('error_log.txt', 'a') as error_log:
                     error_log.write(query_index + ' ' + query_ean + '\n')
                     err = traceback.format_exc()
                     error_log.write(err)
 
-    instock_products = pd.DataFrame(products)
-    print('Zapisuję dostępne produkty do pliku "produkty.csv"...\n')
-    instock_products.to_csv('produkty.csv', index=False)
+    instock_products = pd.read_csv('produkty.csv')
+    #instock_products.to_csv('produkty.csv', index=False)
     print('Zapisuję dostępne produkty do pliku "produkty.xml"...\n')
     instock_products.to_xml('produkty.xml')
 
