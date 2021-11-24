@@ -272,6 +272,7 @@ def open_pdf(file_name):
         text = text.replace('º', 'o')
         text = text.replace('≤', '<=')
         text = text.replace('ù', 'u')
+        text = text.replace('ù', 'u')
         text = text.replace('è', 'e')
         text = text.replace('≈', '~')
         text = text.replace('α', 'a')
@@ -932,7 +933,7 @@ def main():
                     pdf_file_name = 'zalaczniki_pdf\\' + product.ean + '.pdf'
                     split_text = open_pdf(pdf_file_name)
                     if not split_text:
-                        break
+                        continue
                     split_text = rem_prd_id(split_text, product.product_name)
                     
                     split_text, ocr_data.allergens, ocr_data.add_descr = get_ean_allergens_add_discr(split_text)
