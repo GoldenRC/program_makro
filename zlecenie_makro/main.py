@@ -7,6 +7,7 @@ import json
 import pandas as pd
 import traceback
 from pdfminer.high_level import extract_text
+import pdfminer
 from docx import Document
 from docx.shared import RGBColor
 from docx.shared import Pt
@@ -261,17 +262,30 @@ def has_numbers(string):
 def open_pdf(file_name):
     # Otwórz plik pdf (załączniks), podziel zawartość do listy, zamień elementy które nie są poprawnie odczytywane /
     # oraz usuń puste elementy (spacje)
-    text = extract_text(file_name)
-    text = text.replace('½', '1/2')
-    text = text.replace('¼', '1/4')
-    text = text.replace('¾', '3/4')
-    text = text.replace('ø', 'średnica')
-    text = text.replace('≥', '>=')
-    text = text.replace('º', 'o')
-    text = text.replace('≤', '<=')
-    split_text = text.splitlines()
-    split_text = [i for i in split_text if i]
-    return split_text
+    try:
+        text = extract_text(file_name)
+        text = text.replace('½', '1/2')
+        text = text.replace('¼', '1/4')
+        text = text.replace('¾', '3/4')
+        text = text.replace('ø', 'średnica')
+        text = text.replace('≥', '>=')
+        text = text.replace('º', 'o')
+        text = text.replace('≤', '<=')
+        text = text.replace('ù', 'u')
+        text = text.replace('è', 'e')
+        text = text.replace('≈', '~')
+        text = text.replace('α', 'a')
+        text = text.replace('ñ', 'n')
+        text = text.replace('à', 'a')
+        text = text.replace('¯', '-')
+        text = text.replace('ˉ', '-')
+
+        split_text = text.splitlines()
+        split_text = [i for i in split_text if i]
+        return split_text
+    except pdfminer.pdfparser.PDFSyntaxError:
+        print('Błąd PDF!')
+        return None
 
 def rem_prd_id(split_text, prd_id):
     # Usuń elementy zawierające nazwe produktu
@@ -917,6 +931,8 @@ def main():
                     
                     pdf_file_name = 'zalaczniki_pdf\\' + product.ean + '.pdf'
                     split_text = open_pdf(pdf_file_name)
+                    if not split_text:
+                        break
                     split_text = rem_prd_id(split_text, product.product_name)
                     
                     split_text, ocr_data.allergens, ocr_data.add_descr = get_ean_allergens_add_discr(split_text)
