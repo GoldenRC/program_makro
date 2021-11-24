@@ -932,23 +932,22 @@ def main():
                     
                     pdf_file_name = 'zalaczniki_pdf\\' + product.ean + '.pdf'
                     split_text = open_pdf(pdf_file_name)
-                    if not split_text:
-                        continue
-                    split_text = rem_prd_id(split_text, product.product_name)
-                    
-                    split_text, ocr_data.allergens, ocr_data.add_descr = get_ean_allergens_add_discr(split_text)
-                    split_text, ocr_data.ean = rem_ean(split_text, product.ean)
-                    split_text, ocr_data.ingridients = get_ingridients(split_text)
-                    split_text, ocr_data.allergens = get_allergens(split_text, ocr_data.allergens)
-                    split_text, ocr_data.additional_info = get_additional_info(split_text)
-                    split_text, ocr_data.before_table, ocr_data.table1, ocr_data.table2, ocr_data.table3 = get_tables(split_text)
-                    if ocr_data.ingridients == [] and split_text != []:
-                        for el in split_text:
-                            if any(x in el for x in possible_end):
-                                break
-                            ocr_data.ingridients.append(el)
-                    docx_file = write_to_docx(ocr_data)
-                    write_to_html(docx_file)
+                    if split_text:
+                        split_text = rem_prd_id(split_text, product.product_name)
+                        
+                        split_text, ocr_data.allergens, ocr_data.add_descr = get_ean_allergens_add_discr(split_text)
+                        split_text, ocr_data.ean = rem_ean(split_text, product.ean)
+                        split_text, ocr_data.ingridients = get_ingridients(split_text)
+                        split_text, ocr_data.allergens = get_allergens(split_text, ocr_data.allergens)
+                        split_text, ocr_data.additional_info = get_additional_info(split_text)
+                        split_text, ocr_data.before_table, ocr_data.table1, ocr_data.table2, ocr_data.table3 = get_tables(split_text)
+                        if ocr_data.ingridients == [] and split_text != []:
+                            for el in split_text:
+                                if any(x in el for x in possible_end):
+                                    break
+                                ocr_data.ingridients.append(el)
+                        docx_file = write_to_docx(ocr_data)
+                        write_to_html(docx_file)
                 if product:
                     print('Dodaję produkt do bazy danych... ')
                     instock_products = pd.DataFrame(product.as_dict())
