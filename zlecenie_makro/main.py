@@ -1,5 +1,4 @@
-from json.decoder import JSONDecodeError
-from os import error, path
+from os import path
 import requests
 from bs4 import BeautifulSoup
 import time
@@ -26,7 +25,6 @@ try:
 except:
     print('BŁĄD PLIKU ZAWIERAJĄCEGO DANE DO LOGOWANIA')
     print(traceback.format_exc())
-
 
 # produkt i jego atrybuty
 class Product():
@@ -86,21 +84,9 @@ class Processed_OCR():
 def get_bearer_token():
     # Zaloguj użytkownika, uzyskaj token potrzebny do logowania oraz uzupełnij brakujące nagłówki
     headers = {
-        'Accept-Encoding':'gzip, deflate, br',
-        'Connection':'keep-alive',
-        'sec-ch-ua':'"Chromium";v="94", "Google Chrome";v="94", ";Not A Brand";v="99"',
-        'sec-ch-ua-mobile':'?0',
-        'sec-ch-ua-platform':'"Windows"',
-        'accept':'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-        'sec-fetch-site':'cross-site', 
-        'sec-fetch-user':'?1', 
-        'sec-fetch-mode':'navigate',
-        'Sec-Fetch-Dest':'document',
-        'upgrade-insecure-requests':'1', 
         'User-Agent' : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.81 Safari/537.36',
-        'Cache-Control':'max-age=0',
-        'accept-language':'en-GB,en;q=0.9',
-        'referer':'https://makro.ehurtownia.pl/'
+        'sec-ch-ua':'"Chromium";v="94", "Google Chrome";v="94", ";Not A Brand";v="99"',
+        'Connection':'keep-alive',
     }
 
     main_page_url = 'https://sso.infinite.pl/auth/realms/InfiniteEH/protocol/openid-connect/auth?client_id=ehurtownia-panel-frontend&redirect_uri=https%3A%2F%2Fmakro.ehurtownia.pl%2Fone%2F%3Fredirect_fragment%3D%252F&response_mode=fragment&response_type=code&scope=openid'
@@ -174,6 +160,8 @@ def get_prd_data(session, headers, query_index, query_ean, unavailable_products)
     attempt = 0
     product_name = ''
     net_weight = ''
+    product_details = ''
+    product_details_2 = ''
     while attempt < 4:
         try:
             print(f"Uzyskuję dane dla towaru z indekstem {query_index} i kodem EAN {query_ean }")
@@ -248,10 +236,9 @@ def get_prd_data(session, headers, query_index, query_ean, unavailable_products)
         #     print(query_result.text)
         #     attempt += 1
         except:
-            if any(x in query_result.text for x in ('INTERNAL_ERROR', 'Unable to authenticate', 'Unauthorized', 'Whitelabel Error Page')) and attempt < 3:
+            if any(x in query_result.text for x in ('INTERNAL_ERROR', 'Unable to authenticate', 'Unauthorized', 'Whitelabel Error Page')):
             #"INTERNAL_ERROR" in query_result.text or "Unable to authenticate bearer token" in query_result.text and attempt < 3:
                 session, headers = get_bearer_token()
-                attempt += 1
             elif product_details and product_details_2:
                 print('Zapisuję błąd do pliku "error_log.txt"...') 
                 with open('error_log.txt', 'a') as error_log:
@@ -259,12 +246,15 @@ def get_prd_data(session, headers, query_index, query_ean, unavailable_products)
                     error_log.write(err)
                 with open('log.txt', 'a') as log:
                     log.write(f'Wystąpił błąd dla produktu: Indeks {query_index}, EAN {query_ean}\n')
-                return session, headers, None, unavailable_products
-            else:
-                attempt += 1
+                # unavailable_products['Indeks/SupplerItemCode'].append(query_index)
+                # unavailable_products['Kod kreskowy/EAN'].append(query_ean)
+                # return session, headers, None, unavailable_products
+            attempt += 1
         else:
             return session, headers, product, unavailable_products
-            
+
+    unavailable_products['Indeks/SupplerItemCode'].append(query_index)
+    unavailable_products['Kod kreskowy/EAN'].append(query_ean)
     return session, headers, None, unavailable_products
 
 def has_numbers(string):
@@ -278,7 +268,7 @@ def open_pdf(file_name):
         text = extract_text(file_name)
         text = text.replace('½', '1/2').replace('¼', '1/4').replace('¾', '3/4').replace('ø', 'średnica').replace('≥', '>=').replace('º', 'o').replace('≤', '<=')\
             .replace('ù', 'u').replace('ù', 'u').replace('û', 'u').replace('è', 'e').replace('≈', '~').replace('α', 'a').replace('ñ', 'n').replace('à', 'a')\
-            .replace('¯', '-').replace('ˉ', '-')
+            .replace('¯', '-').replace('ˉ', '-').replace('˚','*')
 
         split_text = text.splitlines()
         split_text = [i for i in split_text if i]
@@ -954,7 +944,18 @@ def main():
                                 ocr_data.ingridients.append(el)
                         docx_file = write_to_docx(ocr_data)
                         write_to_html(docx_file)
+
                 if product:
+                    if path.exists('zalaczniki_pdf/' + product.ean + '.pdf') and not path.exists('zalaczniki_html/' + product.ean + '.html'):
+                        with open('niewygenerowane_zalaczniki.txt', 'a') as log:
+                            content = f'BRAK ZAŁĄCZNIKA HTML: {query_index} | {query_ean}, \n'
+                            log.write(content)
+                    elif path.exists('zalaczniki_html/' + product.ean + '.html'):
+                        if path.getsize('zalaczniki_html/' + product.ean + '.html') == 0:
+                            with open('niewygenerowane_zalaczniki.txt', 'a') as log:
+                                content = f'PUSTY ZAŁĄCZNIK HTML: {query_index} | {query_ean}, \n'
+                                log.write(content)
+
                     print('Dodaję produkt do bazy danych... ')
                     instock_products = pd.DataFrame(product.as_dict())
                     if first_run == True:
