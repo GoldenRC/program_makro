@@ -242,7 +242,6 @@ def main():
                 first_run = False
             
             print('Sprawdzam czy wszystkie produkty zostały poprawnie sprawdzone...')
-            time.sleep(30)
             if path.exists('produkty_sprawdzone.csv'):
                 output_products = pd.read_csv('produkty_sprawdzone.csv')
                 products = check_output(saved_products, output_products)
