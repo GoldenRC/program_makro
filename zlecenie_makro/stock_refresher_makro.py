@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 import pandas as pd
+from pandas.io.parsers import read_csv
 import requests
 from bs4 import BeautifulSoup
 from traceback import format_exc
@@ -150,8 +151,8 @@ class Stock_Checker():
         while attempt < 5:
             product_details = ''
             print('Sprawdzam aktualność danych dla produktu', product)
-            query_result = self.session.get((self.query_url % (product.index, product.ean)), headers=self.headers, timeout=15)
             try:
+                query_result = self.session.get((self.query_url % (product.index, product.ean)), headers=self.headers, timeout=15)
                 product_details = json.loads(query_result.text)
                 product_details = product_details['pozycje'][0]
                 vat = product_details['procVat']
@@ -172,7 +173,7 @@ class Stock_Checker():
                     product.set_stock(0)
                     break
             
-            except (ConnectionResetError, NameError,requests.exceptions.Timeout,requests.exceptions.ConnectionError, TimeoutError, exceptions.ProtocolError, exceptions.MaxRetryError, exceptions.NewConnectionError, requests.exceptions.ChunkedEncodingError):
+            except (exceptions.ConnectTimeoutError, ConnectionResetError, NameError,requests.exceptions.Timeout,requests.exceptions.ConnectionError, TimeoutError, exceptions.ProtocolError, exceptions.MaxRetryError, exceptions.NewConnectionError, requests.exceptions.ChunkedEncodingError):
                 print('Błąd połączenia')
                 attempt += 1
                 time.sleep(10)
@@ -211,25 +212,40 @@ class Stock_Checker():
             #except:
             #print('Niepoprawne wejście! Spróbuj jeszcze raz.')
 
+def check_output(starting_df, output_df):
+    if not starting_df['index'].equals(output_df['index']):
+        uncommon_rows = pd.concat([starting_df, output_df]).drop_duplicates(subset='ean', keep=False)
+        return uncommon_rows
+    return pd.DataFrame()
 
 def main():
     main_bot = Stock_Checker()
     main_bot.set_timer()
-    products = pd.read_csv('produkty.csv')
+    saved_products = pd.read_csv('produkty.csv')
 
     while True:
         main_bot.start_bot()
         first_run = True
-        for i, prd in products.iterrows():
-            try:
-                product = Product(prd['index'], prd['ean'], prd['net_price'], prd['gross_price'], prd['vat'])
-                main_bot.check_stock(product)
-            except:
-                print('Błąd!')
-                main_bot.save_err(f'Błąd main: {prd["index"]}')
-                main_bot.save_err(format_exc())
-            main_bot.save_product(product, first_run)
-            first_run = False
+        products = saved_products.copy()
+        
+        while not products.empty:
+            print(products)
+            for i, prd in products.iterrows():
+                try:
+                    product = Product(prd['index'], prd['ean'], prd['net_price'], prd['gross_price'], prd['vat'])
+                    main_bot.check_stock(product)
+                except:
+                    print('Błąd!')
+                    main_bot.save_err(f'Błąd main: {prd["index"]}')
+                    main_bot.save_err(format_exc())
+                main_bot.save_product(product, first_run)
+                first_run = False
+            
+            print('Sprawdzam czy wszystkie produkty zostały poprawnie sprawdzone...')
+            time.sleep(30)
+            if path.exists('produkty_sprawdzone.csv'):
+                output_products = pd.read_csv('produkty_sprawdzone.csv')
+                products = check_output(saved_products, output_products)
 
         print('Czekam 60 sekund po sprawdzeniu...')
         time.sleep(60)
