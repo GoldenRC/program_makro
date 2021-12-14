@@ -202,21 +202,46 @@ class Stock_Checker():
             product_df.to_csv('produkty_sprawdzone.csv', index=False, mode='a', header=False)
 
     def set_timer(self):
-        while True:
-            #try:
-            timer_input = input('Wpisz godzinę sprawdzania (HH:MM) lub "x" aby zakończyć wpisywanie: ')
-            if 'x' in timer_input:
-                break
-            hour, minute = timer_input.split(':')
-            self.start_hours.append([hour, minute])
-            #except:
-            #print('Niepoprawne wejście! Spróbuj jeszcze raz.')
+        try:
+            with open('godziny_sprawdzen.txt', 'r') as check_hours:
+                check_hours = check_hours.readlines()
+                for hour in check_hours:
+                    hour = hour.replace('\n','')
+                    hour, minute = hour.split(':')
+                    self.start_hours.append([hour, minute])
+        except Exception as e:
+            print(e)
+            print('Błąd pliku txt z godzinami')
+
+        # while True:
+        #     #try:
+        #     timer_input = input('Wpisz godzinę sprawdzania (HH:MM) lub "x" aby zakończyć wpisywanie: ')
+        #     if 'x' in timer_input:
+        #         break
+        #     hour, minute = timer_input.split(':')
+        #     self.start_hours.append([hour, minute])
+        #     #except:
+        #     #print('Niepoprawne wejście! Spróbuj jeszcze raz.')
+
+    def check_time(self, print_hours=False):
+        if print_hours:
+            print('Czekam...')
+            print('Godziny sprawdzeń:', end=" ")
+        for hour in self.start_hours:
+            if print_hours:
+                print(hour[0]+":"+hour[1]+", ", end=" ")
+            if int(hour[0]) == datetime.now().hour:
+                if int(hour[1]) == datetime.now().minute:  
+                    return True
+        return False
 
 def check_output(starting_df, output_df):
     if not starting_df['index'].equals(output_df['index']):
         uncommon_rows = pd.concat([starting_df, output_df]).drop_duplicates(subset='ean', keep=False)
         return uncommon_rows
     return pd.DataFrame()
+
+
 
 def main():
     main_bot = Stock_Checker()
@@ -227,6 +252,7 @@ def main():
         main_bot.start_bot()
         first_run = True
         products = saved_products.copy()
+        pass_timer = False
         
         while not products.empty:
             print(products)
@@ -246,21 +272,23 @@ def main():
                 output_products = pd.read_csv('produkty_sprawdzone.csv')
                 products = check_output(saved_products, output_products)
 
-        print('Czekam 60 sekund po sprawdzeniu...')
-        time.sleep(60)
+            start = main_bot.check_time()
+            if start:
+                pass_timer = True
+                break
+            
 
-        start = False
-        while not start:
-            print('Czekam...')
-            print('Godziny sprawdzeń:', end=" ")
-            for hour in main_bot.start_hours:
-                print(f'{hour[0]}:{hour[1]}', end=" ")
-                if int(hour[0]) == datetime.now().hour:
-                    if int(hour[1]) == datetime.now().minute:
-                        start = True
-                        break
-            print(' ')
-            time.sleep(5)
+        if not pass_timer:
+            print('Czekam 60 sekund po sprawdzeniu...')
+            time.sleep(10)
+
+            start = False
+            while not start:
+                start = main_bot.check_time(print_hours=True)
+                if start:
+                    break
+                print(' ')
+                time.sleep(5)
 
 if __name__=="__main__":
     main()
