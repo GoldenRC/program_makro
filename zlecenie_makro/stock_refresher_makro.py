@@ -252,7 +252,6 @@ def main():
         main_bot.start_bot()
         first_run = True
         products = saved_products.copy()
-        pass_timer = False
         
         while not products.empty:
             print(products)
@@ -271,24 +270,18 @@ def main():
             if path.exists('produkty_sprawdzone.csv'):
                 output_products = pd.read_csv('produkty_sprawdzone.csv')
                 products = check_output(saved_products, output_products)
-
-            start = main_bot.check_time()
-            if start:
-                pass_timer = True
-                break
             
 
-        if not pass_timer:
-            print('Czekam 60 sekund po sprawdzeniu...')
-            time.sleep(10)
+        print('Czekam 60 sekund po sprawdzeniu...')
+        time.sleep(10)
 
-            start = False
-            while not start:
-                start = main_bot.check_time(print_hours=True)
-                if start:
-                    break
-                print(' ')
-                time.sleep(5)
+        start = False
+        while not start:
+            start = main_bot.check_time(print_hours=True)
+            if start:
+                break
+            print(' ')
+            time.sleep(5)
 
 if __name__=="__main__":
     main()
